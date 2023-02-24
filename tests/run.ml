@@ -15,7 +15,10 @@ let local = Pkg.local
 let root = if Array.length Sys.argv > 0 then Some (Sys.argv.(1)) else None
 
 let (%) f g x = f (g x)
-let (~:) = List.map Namespaced.make
+let (~:) = List.map (fun str ->
+  match List.rev (Support.split_on_char '.' str) with
+  | [] -> assert false
+  | name :: nms -> Namespaced.make ~nms:(List.rev nms) name)
 
 let classify filename =  match Support.extension filename with
   | "ml" -> { Read.format= Src; kind  = M2l.Structure }
@@ -171,9 +174,9 @@ module Branch(Param:Stage.param) = struct
           Pp.(list estring) y;
       r
     in
-    test "local" inner inner'
-    && test "lib" lib lib'
-    && test "unknown" unkw unkw'
+    test "local" inner (List.map Modname.to_string inner')
+    && test "lib" lib (List.map Modname.to_string lib')
+    && test "unknown" unkw (List.map Modname.to_string unkw')
 
   let add_info {Unit.ml; mli} ((f,p), info) =
     let k = classify f in
@@ -229,7 +232,8 @@ module Branch(Param:Stage.param) = struct
     let cycles = analyze_cycle files in
       let expected = List.map (List.sort compare) expected in
       let cycles = List.map (List.sort compare) (CSet.elements cycles) in
-      let r = cycles = expected in
+      let r = List.map2 (List.map2 Namespaced.compare) cycles expected in
+      let r = List.for_all (List.for_all ((=) 0)) r in
       if r then
         log "cycle:%s" name
       else
@@ -269,9 +273,7 @@ let std =
 let d x =
   x,
   let nms = List.map String.capitalize_ascii @@ Support.split_on_char '/' x in
-  let n = Namespaced.of_path nms in
-  let name = Paths.S.(module_name @@ parse_filename n.name) in
-  { n with name }
+  Namespaced.of_path nms
 
 let (/) p x =
   x, Namespaced.module_path_of_filename ~nms:[p] x
